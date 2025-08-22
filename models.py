@@ -10,6 +10,7 @@ class Attendance(SQLModel, table=True):
 class Member(SQLModel, table=True):
     member_id: int | None = Field(primary_key=True)
     name: str
+    active: bool = True
     classes: list["Class"] = Relationship(back_populates="members", link_model=Attendance)
 
 # Trainer
