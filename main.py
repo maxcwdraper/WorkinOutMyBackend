@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 
@@ -8,6 +8,7 @@ from schemas import AddMemberToClassRequest, AddTrainerToClassRequest, CreateCla
 
 
 app = FastAPI()
+router = APIRouter()
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,7 +20,7 @@ app.add_middleware(
 
 ### GET ###
 
-@app.get("/members")
+@router.get("/members", tags=["members"])
 async def get_members(db: Session = Depends(get_db)) -> list[GetMemberResponse]:
     members: list[Member] = db.exec(select(Member)).all()
     member_responses: list[GetMemberResponse] = []
@@ -31,7 +32,19 @@ async def get_members(db: Session = Depends(get_db)) -> list[GetMemberResponse]:
         member_responses.append(member_response)
     return member_responses
 
-@app.get("/members/{member_id}")
+@router.get("/members/active", tags=["members"])
+async def get_active_members(db: Session = Depends(get_db)) -> list[GetMemberResponse]:
+    members: list[Member] = db.exec(select(Member).where(Member.active==True)).all()
+    member_responses: list[GetMemberResponse] = []
+    for member in members:
+        class_names: list[str] = []
+        for one_class in member.classes:
+            class_names.append(one_class.name)
+        member_response: GetMemberResponse = GetMemberResponse(name=member.name, classes=class_names)
+        member_responses.append(member_response)
+    return member_responses
+
+@router.get("/members/{member_id}", tags=["members"])
 async def get_member(member_id: int, db: Session = Depends(get_db)) -> GetMemberResponse:
     member: Member | None = db.get(Member, member_id)
     if member is None:
@@ -42,7 +55,7 @@ async def get_member(member_id: int, db: Session = Depends(get_db)) -> GetMember
     member_response: GetMemberResponse = GetMemberResponse(name=member.name, classes=class_names)
     return member_response
 
-@app.get("/trainers")
+@router.get("/trainers", tags=["trainers"])
 async def get_trainers(db: Session = Depends(get_db)) -> list[GetTrainerResponse]:
     trainers: list[Trainer] = db.exec(select(Trainer)).all()
     trainer_responses: list[GetTrainerResponse] = []
@@ -54,7 +67,7 @@ async def get_trainers(db: Session = Depends(get_db)) -> list[GetTrainerResponse
         trainer_responses.append(trainer_response)
     return trainer_responses
 
-@app.get("/trainers/{trainer_id}")
+@router.get("/trainers/{trainer_id}", tags=["trainers"])
 async def get_trainer(trainer_id: int, db: Session = Depends(get_db)) -> GetTrainerResponse:
     trainer: Trainer | None = db.get(Trainer, trainer_id)
     if trainer is None:
@@ -65,7 +78,7 @@ async def get_trainer(trainer_id: int, db: Session = Depends(get_db)) -> GetTrai
     trainer_response: GetTrainerResponse = GetTrainerResponse(name=trainer.name, specialty=trainer.specialty, classes=class_names)
     return trainer_response
 
-@app.get("/classes")
+@router.get("/classes", tags=["classes"])
 async def get_classes(db: Session = Depends(get_db)) -> list[GetClassResponse]:
     classes: list[Class] = db.exec(select(Class)).all()
     class_responses: list[GetClassResponse] = []
@@ -77,7 +90,7 @@ async def get_classes(db: Session = Depends(get_db)) -> list[GetClassResponse]:
         class_responses.append(class_response)
     return class_responses
 
-@app.get("/classes/{class_id}")
+@router.get("/classes/{class_id}", tags=["classes"])
 async def get_class(class_id: int, db: Session = Depends(get_db)) -> GetClassResponse:
     one_class: Class | None = db.get(Class, class_id)
     if one_class is None:
@@ -88,7 +101,7 @@ async def get_class(class_id: int, db: Session = Depends(get_db)) -> GetClassRes
     class_response: GetClassResponse = GetClassResponse(name=one_class.name, date=one_class.date, duration=one_class.duration, trainer=one_class.trainer.name, members=member_names)
     return class_response
 
-@app.get("/classes/{class_id}/members")
+@router.get("/classes/{class_id}/members", tags=["classes"])
 async def get_class_member_list(class_id: int, db: Session = Depends(get_db)) -> list[str]:
     searching_class: Class | None = db.get(Class, class_id)
     if searching_class is None:
@@ -98,13 +111,44 @@ async def get_class_member_list(class_id: int, db: Session = Depends(get_db)) ->
         member_names.append(member.name)
     return member_names
 
-# @app.get("/trainers/{class_id}/members")
-# async def get_trainer_class_member_count(class_id: int, db: Session = Depends(get_db)) -> int:
+@router.get("/classes/{class_id}/memberslength", tags=["attendance"])
+async def get_class_member_count(class_id: int, db: Session = Depends(get_db)) -> int:
+    searching_class: Class | None = db.get(Class, class_id)
+    if searching_class is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Class with ID {class_id} not found.")
+    return len(searching_class.members)
+
+@router.get("/trainers/{class_id}/members", tags=["attendance"])
+async def get_trainer_class_member_count(class_id: int, trainer_id: int, db: Session = Depends(get_db)) -> int:
+    trainer_class: Class | None = db.get(Class, class_id).members
+    if trainer_class is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Class with ID {class_id} not found.")
+    trainer: Trainer | None = db.get(Trainer, trainer_id)
+    if trainer is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Trainer with ID {trainer_id} not found.")
+    if trainer.trainer_id != trainer_class.trainer_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Trainer not teaching class.")
+    return len(trainer_class.members)
+
+# @router.get("/classes/date", tags=["classes"])
+# async def get_most_popular_day(db: Session = Depends(get_db)) -> str:
+#     class_days: list[str] = []
+#     days_count: list[int] = []
+#     classes: list[Class] = db.exec(select(Class)).all()
+#     for one_class in classes:
+#         class_days.append(one_class.date)
+#     days_count.append(class_days.count("Monday"))
+#     days_count.append(class_days.count("Tuesday"))
+#     days_count.append(class_days.count("Wednesday"))
+#     days_count.append(class_days.count("Thursday"))
+#     days_count.append(class_days.count("Friday"))
+#     days_count.append(class_days.count("Saturday"))
+#     days_count.append(class_days.count("Sunday"))
 
 
 ### POST ###
 
-@app.post("/members", status_code=status.HTTP_201_CREATED)
+@router.post("/members", status_code=status.HTTP_201_CREATED, tags=["members"])
 async def create_member(create_member_request: CreateMemberRequest, db: Session = Depends(get_db)) -> int:
     member: Member = Member(**create_member_request.model_dump())
     db.add(member)
@@ -112,7 +156,7 @@ async def create_member(create_member_request: CreateMemberRequest, db: Session 
     db.refresh(member)
     return member.member_id
 
-@app.post("/trainers", status_code=status.HTTP_201_CREATED)
+@router.post("/trainers", status_code=status.HTTP_201_CREATED, tags=["trainers"])
 async def create_trainer(create_trainer_request: CreateTrainerRequest, db: Session = Depends(get_db)) -> int:
     trainer: Trainer = Trainer(**create_trainer_request.model_dump())
     db.add(trainer)
@@ -120,7 +164,7 @@ async def create_trainer(create_trainer_request: CreateTrainerRequest, db: Sessi
     db.refresh(trainer)
     return trainer.trainer_id
 
-@app.post("/classes", status_code=status.HTTP_201_CREATED)
+@router.post("/classes", status_code=status.HTTP_201_CREATED, tags=["classes"])
 async def create_class(create_class_request: CreateClassRequest, db: Session = Depends(get_db)) -> int:
     created_class: Class = Class(**create_class_request.model_dump())
     db.add(created_class)
@@ -128,7 +172,7 @@ async def create_class(create_class_request: CreateClassRequest, db: Session = D
     db.refresh(created_class)
     return created_class.class_id
 
-@app.post("/classes/{class_id}/members", status_code=status.HTTP_201_CREATED)
+@router.post("/classes/{class_id}/members", status_code=status.HTTP_201_CREATED, tags=["classes"])
 async def add_member_to_class(class_id: int, request: AddMemberToClassRequest, db: Session = Depends(get_db)) -> None:
     member: Member | None = db.get(Member, request.member_id)
     if member is None:
@@ -141,7 +185,7 @@ async def add_member_to_class(class_id: int, request: AddMemberToClassRequest, d
     adding_class.members.append(member)
     db.commit()
 
-@app.post("/classes/{class_id}/trainer", status_code=status.HTTP_201_CREATED)
+@router.post("/classes/{class_id}/trainer", status_code=status.HTTP_201_CREATED, tags=["classes"])
 async def add_trainer_to_class(class_id: int, request: AddTrainerToClassRequest, db: Session = Depends(get_db)) -> None:
     trainer: Trainer | None = db.get(Trainer, request.trainer_id)
     if trainer is None:
@@ -158,7 +202,7 @@ async def add_trainer_to_class(class_id: int, request: AddTrainerToClassRequest,
 
 ### PATCH ###
 
-@app.patch("/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch("/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["members"])
 async def update_member(member_id: int, update_member_request: UpdateMemberRequest, db: Session = Depends(get_db)) -> None:
     member: Member | None = db.get(Member, member_id)
     if member is None:
@@ -167,7 +211,7 @@ async def update_member(member_id: int, update_member_request: UpdateMemberReque
         setattr(member, field, value)
     db.commit()
 
-@app.patch("/trainers/{trainer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch("/trainers/{trainer_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["trainers"])
 async def update_trainer(trainer_id: int, update_trainer_request: UpdateTrainerRequest, db: Session = Depends(get_db)) -> None:
     trainer: Trainer | None = db.get(Trainer, trainer_id)
     if trainer is None:
@@ -176,7 +220,7 @@ async def update_trainer(trainer_id: int, update_trainer_request: UpdateTrainerR
         setattr(trainer, field, value)
     db.commit()
 
-@app.patch("/classes/{class_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch("/classes/{class_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["classes"])
 async def update_class(class_id: int, update_class_request: UpdateClassRequest, db: Session = Depends(get_db)) -> None:
     updated_class: Class | None = db.get(Class, class_id)
     if updated_class is None:
@@ -188,7 +232,7 @@ async def update_class(class_id: int, update_class_request: UpdateClassRequest, 
 
 ### DELETE ###
 
-@app.delete("/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["members"])
 async def delete_member(member_id: int, db: Session = Depends(get_db)) -> None:
     member: Member | None = db.get(Member, member_id)
     if member is None:
@@ -196,7 +240,7 @@ async def delete_member(member_id: int, db: Session = Depends(get_db)) -> None:
     db.delete(member)
     db.commit()
 
-@app.delete("/trainers/{trainer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/trainers/{trainer_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["trainers"])
 async def delete_trainer(trainer_id: int, db: Session = Depends(get_db)) -> None:
     trainer: Trainer | None = db.get(Trainer, trainer_id)
     if trainer is None:
@@ -204,7 +248,7 @@ async def delete_trainer(trainer_id: int, db: Session = Depends(get_db)) -> None
     db.delete(trainer)
     db.commit()
 
-@app.delete("/classes/{class_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/classes/{class_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["classes"])
 async def delete_class(class_id: int, db: Session = Depends(get_db)) -> None:
     deleting_class: Class | None = db.get(Class, class_id)
     if deleting_class is None:
@@ -212,7 +256,7 @@ async def delete_class(class_id: int, db: Session = Depends(get_db)) -> None:
     db.delete(deleting_class)
     db.commit()
 
-@app.delete("/classes/{class_id}/{trainer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/classes/{class_id}/{trainer_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["classes"])
 async def delete_class_trainer(class_id: int, trainer_id: int, db: Session = Depends(get_db)) -> None:
     trainer: Trainer | None = db.get(Trainer, trainer_id)
     if trainer is None:
@@ -225,3 +269,5 @@ async def delete_class_trainer(class_id: int, trainer_id: int, db: Session = Dep
     db.delete(deleting_class.trainer)
     db.delete(deleting_class.trainer_id)
     db.commit()
+
+app.include_router(router)
