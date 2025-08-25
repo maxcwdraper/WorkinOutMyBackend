@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session, select
+from sqlmodel import desc, Session, select
+from sqlalchemy import func
 
 from database import get_db
 from models import Attendance, Class, Member, Trainer
@@ -118,32 +119,28 @@ async def get_class_member_count(class_id: int, db: Session = Depends(get_db)) -
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Class with ID {class_id} not found.")
     return len(searching_class.members)
 
-@router.get("/trainers/{class_id}/members", tags=["attendance"])
+@router.get("/trainers/{trainer_id}/classes/{class_id}/members", tags=["attendance"])
 async def get_trainer_class_member_count(class_id: int, trainer_id: int, db: Session = Depends(get_db)) -> int:
-    trainer_class: Class | None = db.get(Class, class_id).members
+    trainer_class: Class | None = db.get(Class, class_id)
     if trainer_class is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Class with ID {class_id} not found.")
     trainer: Trainer | None = db.get(Trainer, trainer_id)
     if trainer is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Trainer with ID {trainer_id} not found.")
     if trainer.trainer_id != trainer_class.trainer_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Trainer not teaching class.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Trainer not teaching this class.")
     return len(trainer_class.members)
 
-# @router.get("/classes/date", tags=["classes"])
-# async def get_most_popular_day(db: Session = Depends(get_db)) -> str:
-#     class_days: list[str] = []
-#     days_count: list[int] = []
-#     classes: list[Class] = db.exec(select(Class)).all()
-#     for one_class in classes:
-#         class_days.append(one_class.date)
-#     days_count.append(class_days.count("Monday"))
-#     days_count.append(class_days.count("Tuesday"))
-#     days_count.append(class_days.count("Wednesday"))
-#     days_count.append(class_days.count("Thursday"))
-#     days_count.append(class_days.count("Friday"))
-#     days_count.append(class_days.count("Saturday"))
-#     days_count.append(class_days.count("Sunday"))
+@router.get("/classes/date", tags=["classes"])
+async def get_most_popular_day(db: Session = Depends(get_db)) -> str:
+    statement = select(
+        Class.date,
+        func.count(Class.class_id).label("count")
+    ).group_by(Class.date).order_by(desc("count")).limit(1)
+    most_popular_day = db.exec(statement).first()
+    if most_popular_day is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No classes found.")
+    return most_popular_day
 
 
 ### POST ###
