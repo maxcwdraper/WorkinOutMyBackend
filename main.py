@@ -79,6 +79,17 @@ async def get_trainer(trainer_id: int, db: Session = Depends(get_db)) -> GetTrai
     trainer_response: GetTrainerResponse = GetTrainerResponse(name=trainer.name, specialty=trainer.specialty, classes=class_names)
     return trainer_response
 
+@router.get("/classes/date", tags=["classes"])
+async def get_most_popular_day(db: Session = Depends(get_db)) -> str:
+    statement = select(
+        Class.date,
+        func.count(Class.class_id).label("count")
+    ).group_by(Class.date).order_by(desc("count")).limit(1)
+    most_popular_day: str | None = db.exec(statement).first()
+    if most_popular_day is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No classes found.")
+    return most_popular_day[0]
+
 @router.get("/classes", tags=["classes"])
 async def get_classes(db: Session = Depends(get_db)) -> list[GetClassResponse]:
     classes: list[Class] = db.exec(select(Class)).all()
@@ -130,17 +141,6 @@ async def get_trainer_class_member_count(class_id: int, trainer_id: int, db: Ses
     if trainer.trainer_id != trainer_class.trainer_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Trainer not teaching this class.")
     return len(trainer_class.members)
-
-@router.get("/classes/date", tags=["classes"])
-async def get_most_popular_day(db: Session = Depends(get_db)) -> str:
-    statement = select(
-        Class.date,
-        func.count(Class.class_id).label("count")
-    ).group_by(Class.date).order_by(desc("count")).limit(1)
-    most_popular_day = db.exec(statement).first()
-    if most_popular_day is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No classes found.")
-    return most_popular_day
 
 
 ### POST ###
